@@ -513,21 +513,21 @@ void RunProducersConsumers(int numProd_, int numCons_, TBuffer& buffer_)
 	// producer performance stat.
 	// Log of number of elem per buffer * 10.
 	// production time per elem (in microsec) * 100
-	cout << 10*log(buffer_.BufElemSize()) + 1
-		<< "," << usecPerProd*100 << endl;
+	//cout << 10 * log(buffer_.BufElemSize()) + 1
+	//	<< " ----------- " << usecPerProd * 100 << endl;
+	cout << buffer_.BufElemSize()
+		<< " ----------- " << usecPerProd * 100 << endl;
 
-	/*
-	cout << "------Buffer : " << buffer_.BufSize() << "x" 
-		 << buffer_.BufElemSize() << " = " << buffer_.BufSize()*buffer_.BufElemSize() 
-		 << endl;
-	cout << "------Number of producers : " << numProd_ << ", Total produced " 
-		 << totalMsgsProd << " (" << totalElapsedProd << "s -- " 
-		 << usecPerProd << " usec/msg)" << endl;
-	cout << "------Number of consumers : " << numCons_ << ", Total consumed " 
-		 << totalMsgsCons << " (" << totalElapsedCons << "s -- " 
-		 << usecPerCons << " usec/msg)" << endl;;
+	//cout << "------Buffer : " << buffer_.BufSize() << "x"
+	//	 << buffer_.BufElemSize() << " = " << buffer_.BufSize()*buffer_.BufElemSize()
+	//	 << endl;
+	//cout << "------Number of producers : " << numProd_ << ", Total produced "
+	//	 << totalMsgsProd << " (" << totalElapsedProd << "s -- "
+	//	 << usecPerProd << " usec/msg)" << endl;
+	//cout << "------Number of consumers : " << numCons_ << ", Total consumed "
+	//	 << totalMsgsCons << " (" << totalElapsedCons << "s -- "
+	//	 << usecPerCons << " usec/msg)" << endl;
 	_dbg_ << "Last produced " << lastProduced << ", last consumed " << lastConsumed << endl;
-	*/
 	if (numProd_ <= 1 && numCons_ <= 1) // this sanity test valid only for single prod and single cons
 	{
 		if ( (lastProduced != (totalMsgsProd-1) ) || (lastConsumed != (totalMsgsCons-1) ) )
@@ -562,7 +562,8 @@ int main(int argc, char** argv)
 
 	// vary number of columns from 1 (min) to BufSize (max)
 	// and verify the performance.
-	cout << "Buffer row size [10*log(row size) + 1] vs usec/message\n";
+	//cout << "Buffer row size [10*log(row size) + 1] vs usec/message\n";
+	cout << "Buffer row size  vs 100*usec/message\n";
 	cout << "------------------------------------------------------\n";
 	for (size_t numCols = 1; numCols <= BufSize; numCols *= 10)
 	{
