@@ -8,20 +8,18 @@ Synchronised between multiple producer and consumer threads.
 #include <string>
 #include <vector>
 #include <exception>      // std::exception
-#include <cstdio>
-#include <future>
+#include <thread>         // std::thread, std::this_thread::sleep_for
 
 
 // default number of producers, consumers
-static const int g_NumProd = 2;
-static const int g_NumCons = 2;
+static const auto g_NumProd = 2;
+static const auto g_NumCons = 2;
 typedef int64_t ObjectType;
 
 //! Producer thread
 template<typename TBuffer>
 class Producer
 {
-	typedef typename TBuffer::ValueType ObjType;
 	bool   m_stop; // when true, producer stops
 	TBuffer&     m_buffer; // buffer to write to
 	size_t      m_numObjs;
@@ -51,12 +49,13 @@ public:
 			size_t absRow;
 			size_t row = m_buffer.GetNextLocForProd(absRow);
 			if (m_stop || row == -1) break;
-			ObjType* arr = &m_buffer[row][0];
+			auto* arr = &m_buffer[row][0];
 			for (size_t col = 0; (col < m_buffer.BufElemSize()) && (!m_stop); ++col)
 			{
 				// value to produce is the next sequential element
 				arr[col] = absRow*m_buffer.BufElemSize() + col;
-				//cout << "Wrote " << m_buffer[row][col] << " at [" << row << "][" << col << "], absRow " << absRow << endl;
+				//cout << "Wrote " << m_buffer[row][col] << " at ["
+				//     << row << "][" << col << "], absRow " << absRow << endl;
 				++m_numObjs;
 			}
 			m_buffer.SetLocReadyForCons(row); // all elements in row written. release this row to consumer
@@ -84,7 +83,6 @@ public:
 template<typename TBuffer>
 class Consumer
 {
-	typedef typename TBuffer::ValueType ObjType;
 	bool   m_stop; // when true, consumer stops
 	TBuffer&    m_buffer; // buffer to read from
 	size_t      m_numObjs;
@@ -94,8 +92,7 @@ public:
 	Consumer(TBuffer& buffer_) :
 		m_stop(false), m_buffer(buffer_), m_numObjs(0)
 	{
-		//m_thread = std::thread(ThreadFuncForConsumer, this);
-		std::async(std::launch::async, ThreadFuncForConsumer, this);
+		m_thread = std::thread(ThreadFuncForConsumer, this);
 	}
 	~Consumer()
 	{
@@ -111,12 +108,12 @@ public:
 		while (!m_stop)
 		{
 			size_t absRow;
-			size_t row = m_buffer.GetNextLocForCons(absRow);
+			auto row = m_buffer.GetNextLocForCons(absRow);
 			if (m_stop || row == -1) break;
-			ObjectType* arr = &m_buffer[row][0];
-			for (size_t col = 0; (col < m_buffer.BufElemSize()) && (!m_stop); ++col)
+			auto* arr = &m_buffer[row][0];
+			for (auto col = 0u; (col < m_buffer.BufElemSize()) && (!m_stop); ++col)
 			{
-				ObjectType curObj = arr[col];
+				auto curObj = arr[col];
 				//cout << "Read " << curObj << " at [" << absRow << "][" << col << "] "  << endl;
 				++m_numObjs;
 			}
@@ -142,54 +139,53 @@ public:
 
 
 template<typename TBuffer>
-void RunProducersConsumers(int numProd_, int numCons_, TBuffer& buffer_)
+void RunProducersConsumers(size_t numProd_, size_t numCons_, TBuffer& buffer_)
 {
-	typedef TBuffer::ValueType ObjType;
-	std::vector<Producer<TBuffer>*> prods(numProd_);
-	std::vector<Consumer<TBuffer>*> cons(numCons_);
+	std::vector<std::unique_ptr<Producer<TBuffer>>> prods;
+	std::vector<std::unique_ptr<Consumer<TBuffer>>> cons;
 
-	for (size_t i = 0; i < prods.size(); ++i)
+	for (auto i = 0u; i < numProd_; ++i)
 	{
-		prods[i] = new Producer<TBuffer>(buffer_);
+		auto p = std::make_unique<Producer<TBuffer>>(buffer_);
+		prods.push_back(std::move(p));
 	}
-	for (size_t i = 0; i < cons.size(); ++i)
+	for (auto i = 0u; i < numCons_; ++i)
 	{
-		cons[i] = new Consumer<TBuffer>(buffer_);
+		auto c = std::make_unique<Consumer<TBuffer>>(buffer_);
+		cons.push_back(std::move(c));
 	}
 
 	{
-		for (size_t i = 0; i < prods.size(); ++i)
+		for (auto i = 0u; i < numProd_; ++i)
 		{
-			//prods[i]->Start();
+			prods[i]->Start();
 		}
-		for (size_t i = 0; i < cons.size(); ++i)
+		for (auto i = 0u; i < numCons_; ++i)
 		{
-			//cons[i]->Start();
+			cons[i]->Start();
 		}
-		const int numSecs = 5;
+		const auto numSecs = 5;
 		std::cout << "Sleep for " << numSecs << " seconds\n";
 		std::this_thread::sleep_for(std::chrono::seconds(numSecs));
 		std::cout << "Stopping producers and consumers\n";
-		for (size_t i = 0; i < prods.size(); ++i)
+		for (auto i = 0u; i < prods.size(); ++i)
 		{
 			prods[i]->Stop();
 		}
-		for (size_t i = 0; i < cons.size(); ++i)
+		for (auto i = 0u; i < numCons_; ++i)
 		{
 			cons[i]->Stop();
 		}
 
 		// wait for all  threads to complete
 		std::cout << "Waiting for producers and consumers to complete\n";
-		for (size_t i = 0; i < cons.size(); ++i)
+		for (auto i = 0u; i < numCons_; ++i)
 		{
 			cons[i]->GetThread().join();
-			delete cons[i];
 		}
-		for (size_t i = 0; i < prods.size(); ++i)
+		for (auto i = 0u; i < numProd_; ++i)
 		{
 			prods[i]->GetThread().join();
-			delete prods[i];
 		}
 	}
 }
@@ -197,13 +193,13 @@ void RunProducersConsumers(int numProd_, int numCons_, TBuffer& buffer_)
 
 int main(int argc, char** argv)
 {
-	int numProd = g_NumProd, numCons = g_NumCons;
+	auto  numProd = g_NumProd, numCons = g_NumCons;
 	// buffer rows x columns = 1 million
-	static const size_t BufSize = 1000000;
-	static const size_t NumColumns = 100;
-	static const size_t NumRows = BufSize / NumColumns;
+	static const auto BufSize = 1000000;
+	static const auto  NumColumns = 100;
+	static const auto  NumRows = BufSize / NumColumns;
 	typedef Messenger::MBuffer<NumRows, NumColumns, int64_t> BufType;
-	std::unique_ptr<BufType> buffer(new BufType());
+	auto buffer = std::make_unique<BufType>();
 
 	RunProducersConsumers(numProd, numCons, *buffer);
 	std::cout << "End of simulation\n";
