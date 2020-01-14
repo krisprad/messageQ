@@ -3,17 +3,13 @@
 
 Synchronised between multiple producer and consumer threads.
 */
-#include "../MsgQ/MBuffer.h"
+#include "MBuffer.h"
 #include <iostream>
 #include <string>
 #include <vector>
 #include <exception>      // std::exception
 #include <cstdio>
-#include <thread>         // std::thread, std::this_thread::sleep_for
-
-
-using namespace Messenger;
-using namespace std;
+#include <future>
 
 
 // default number of producers, consumers
@@ -39,7 +35,7 @@ public:
 	}
 	~Producer()
 	{
-		cout << m_numObjs << " values produced in this thread\n";
+		std::cout << m_numObjs << " values produced in this thread\n";
 	}
 
 	// launch thread
@@ -92,7 +88,7 @@ class Consumer
 	bool   m_stop; // when true, consumer stops
 	TBuffer&    m_buffer; // buffer to read from
 	size_t      m_numObjs;
-	//std::thread m_thread; // default constructed thread
+	std::thread m_thread; // default constructed thread
 
 public:
 	Consumer(TBuffer& buffer_) :
@@ -103,7 +99,7 @@ public:
 	}
 	~Consumer()
 	{
-		cout << m_numObjs << " vaues consumed in this thread\n";
+		std::cout << m_numObjs << " vaues consumed in this thread\n";
 	}
 	// launch thread
 	void Start()
@@ -149,8 +145,8 @@ template<typename TBuffer>
 void RunProducersConsumers(int numProd_, int numCons_, TBuffer& buffer_)
 {
 	typedef TBuffer::ValueType ObjType;
-	vector<Producer<TBuffer>*> prods(numProd_);
-	vector<Consumer<TBuffer>*> cons(numCons_);
+	std::vector<Producer<TBuffer>*> prods(numProd_);
+	std::vector<Consumer<TBuffer>*> cons(numCons_);
 
 	for (size_t i = 0; i < prods.size(); ++i)
 	{
@@ -171,9 +167,9 @@ void RunProducersConsumers(int numProd_, int numCons_, TBuffer& buffer_)
 			//cons[i]->Start();
 		}
 		const int numSecs = 5;
-		cout << "Sleep for " << numSecs << " seconds\n";
+		std::cout << "Sleep for " << numSecs << " seconds\n";
 		std::this_thread::sleep_for(std::chrono::seconds(numSecs));
-		cout << "Stopping producers and consumers\n";
+		std::cout << "Stopping producers and consumers\n";
 		for (size_t i = 0; i < prods.size(); ++i)
 		{
 			prods[i]->Stop();
@@ -184,7 +180,7 @@ void RunProducersConsumers(int numProd_, int numCons_, TBuffer& buffer_)
 		}
 
 		// wait for all  threads to complete
-		cout << "Waiting for producers and consumers to complete\n";
+		std::cout << "Waiting for producers and consumers to complete\n";
 		for (size_t i = 0; i < cons.size(); ++i)
 		{
 			cons[i]->GetThread().join();
@@ -206,9 +202,9 @@ int main(int argc, char** argv)
 	static const size_t BufSize = 1000000;
 	static const size_t NumColumns = 100;
 	static const size_t NumRows = BufSize / NumColumns;
-	typedef MBuffer<NumRows, NumColumns, int64_t> BufType;
+	typedef Messenger::MBuffer<NumRows, NumColumns, int64_t> BufType;
 	std::unique_ptr<BufType> buffer(new BufType());
 
 	RunProducersConsumers(numProd, numCons, *buffer);
-	cout << "End of simulation\n";
+	std::cout << "End of simulation\n";
 }
