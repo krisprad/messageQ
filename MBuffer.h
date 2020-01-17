@@ -151,11 +151,11 @@ public:
 		// and then set status to WRITING.
 		// When status is WRITING, no other producer can write, 
 		// and no consumer can read.
-		long absLoc = m_prodLoc.load();
-		size_t loc = absLoc % m_rows;
+		auto absLoc = m_prodLoc.load();
+		auto loc = absLoc % m_rows;
 		std::atomic<Status>* status{ &m_locStatus[loc] };
-		Status statusReadyForWrite = Status::READY_FOR_WRITE;
-		Status statusWriting = Status::WRITING;
+		auto statusReadyForWrite = Status::READY_FOR_WRITE;
+		auto statusWriting = Status::WRITING;
 		while ( (!status->compare_exchange_strong (statusReadyForWrite, statusWriting))
 			&& (!m_stop) )
 		{
@@ -203,11 +203,11 @@ public:
 		// wait as long as m_consLoc status is not READY_FOR_READ;
 		// and then set status to READING.
 		// When status is READING, no producer can write, and no other consumer can read.
-		long absLoc = m_consLoc.load();
-		size_t loc = absLoc % m_rows;
+		auto absLoc = m_consLoc.load();
+		auto loc = absLoc % m_rows;
 		std::atomic<Status>* status{ &m_locStatus[loc] };
-		Status statusReadyForRead = Status::READY_FOR_READ;
-		Status statusReading = Status::READING;
+		auto statusReadyForRead = Status::READY_FOR_READ;
+		auto statusReading = Status::READING;
 		while (!m_stop)
 		{
 			while ((!status->compare_exchange_strong(statusReadyForRead, statusReading))
@@ -278,7 +278,7 @@ public:
 	*/
 	void	SetLocReadyForCons(size_t absloc_)
 	{
-		size_t loc = absloc_ % m_rows;
+		const auto loc = absloc_ % m_rows;
 		std::atomic<Status>& status{ m_locStatus[loc] };
 		status.store(Status::READY_FOR_READ);
 	}
@@ -290,7 +290,7 @@ public:
 	*/
 	void	SetLocReadyForProd(size_t absloc_)
 	{
-		size_t loc = absloc_ % m_rows;
+		const auto  loc = absloc_ % m_rows;
 		std::atomic<Status>& status{ m_locStatus[loc] };
 		status.store(Status::READY_FOR_WRITE);
 	}
@@ -303,7 +303,7 @@ public:
 	void ReleaseAllLocks()
 	{
 		// release all locations
-		for (size_t i = 0; i < m_rows; ++i) {
+		for (auto i = 0u; i < m_rows; ++i) {
 			std::atomic<Status>& status{ m_locStatus[i] };
 			status.store(Status::READY_FOR_WRITE);
 			m_locToAbsLocMap[i].store(-1); // loc -> abs location is not set to start woth

@@ -8,10 +8,7 @@ Synchronised between multiple producer and consumer threads.
 #include <string>
 #include <vector>
 #include <exception>      // std::exception
-#include <cstdio>
 #include <thread>         // std::thread, std::this_thread::sleep_for
-#include <ctime>
-#include <ratio>
 #include <chrono>
 
 
@@ -20,8 +17,8 @@ Synchronised between multiple producer and consumer threads.
 // #define DEBUG_MSG
 
 // default number of producers, consumers
-static const int g_NumProd = 2;
-static const int g_NumCons = 2;
+static const auto g_NumProd = 2;
+static const auto g_NumCons = 2;
 
 
 //! Dbg: forwards requests to ostream
@@ -53,7 +50,7 @@ public:
 
 // enable/suppress debug output
 #ifdef DEBUG_MSG
-Dbg	_dbg_(&cout);
+Dbg	_dbg_(&std::cout);
 #else
 Dbg	_dbg_;
 #endif
@@ -85,27 +82,33 @@ public:
 	double getElapsedTime()
 	{
 		using namespace std::chrono;
-		steady_clock::duration dur = m_end - m_start;
-		long long ticks = dur.count(); // ticks of nanoseconds
-		double seconds = double(ticks)*steady_clock::period::num / steady_clock::period::den;
+		auto dur = m_end - m_start;
+		auto ticks = dur.count(); // ticks of nanoseconds
+		auto seconds = double(ticks)*steady_clock::period::num / steady_clock::period::den;
 		return seconds;
 	}
 	void PrintElasped()
 	{
-		double seconds = getElapsedTime();
+		auto seconds = getElapsedTime();
 		_dbg_ << "Elapsed time for " << m_name << ": " << seconds << " secs\n";
 	}
 
 };
 
-//! Object type of message
-template<typename T> class ObjType;
+//! type of message stored in buffer.
+// This class is used as a wrapper for underlying
+// type specified as template param.
+// This is used for sanity checks
+// in verifying whether producders/consumers
+// are working correctly, by checking associated indices.
+template<typename T> class MsgType;
+
 //! Object type of message: int specialization
-template<> class ObjType<int64_t>
+template<> class MsgType<int64_t>
 {
 	int64_t m_obj;
 public:
-	ObjType(int64_t obj_ = 0) : m_obj(obj_) {}
+	explicit MsgType(int64_t obj_ = 0) : m_obj(obj_) {}
 	//!Get object index for int val: same as value
 	/*! index is used to do sanity check.
 	    An object produced at absolute location
@@ -113,9 +116,9 @@ public:
 		Absolute location in the buffer[row][col] =
 		row*number-of-columns-per-row + col
 	*/
-	int64_t GetIndex() { return m_obj; }
-	bool operator<(const ObjType& obj_) { return m_obj < obj_.m_obj; }
-	bool operator!=(const ObjType& obj_) { return m_obj != obj_.m_obj; }
+	int64_t GetIndex() const { return m_obj; }
+	bool operator<(const MsgType& obj_) { return m_obj < obj_.m_obj; }
+	bool operator!=(const MsgType& obj_) { return m_obj != obj_.m_obj; }
 	int64_t Value() const { return m_obj; }
 	void Value(const int64_t obj_) { m_obj = obj_;  }
 };
@@ -127,13 +130,13 @@ public:
 	This simplified version used to easily obtain
 	index for the object.
 */
-template<> class ObjType<std::string>
+template<> class MsgType<std::string>
 {
 	std::string m_obj;
 	int64_t m_objIndex;
 public:
-	ObjType(int64_t obj_) : m_obj(std::to_string(obj_)), m_objIndex(obj_) {}
-	ObjType(std::string obj_="0") : m_obj(obj_), m_objIndex(stoll(obj_)) {}
+	explicit MsgType(int64_t obj_) : m_obj(std::to_string(obj_)), m_objIndex(obj_) {}
+	MsgType(std::string obj_="0") : m_obj(obj_), m_objIndex(stoll(obj_)) {}
 	//!Get object index
 	/*! index is used to do sanity check.
 	An object produced at absolute location
@@ -141,49 +144,32 @@ public:
 	Absolute location in the buffer[row][col] =
 	row*number-of-columns-per-row + col
 	*/
-	int64_t GetIndex() { return m_objIndex; }
-	bool operator<(const ObjType& obj_) { return m_objIndex < obj_.m_objIndex; }
-	bool operator!=(const ObjType& obj_) { return m_obj != obj_.m_obj; }
+	int64_t GetIndex() const { return m_objIndex; }
+	bool operator<(const MsgType& obj_) { return m_objIndex < obj_.m_objIndex; }
+	bool operator!=(const MsgType& obj_) { return m_obj != obj_.m_obj; }
 	std::string Value() const { return m_obj; }
 	void Value(const int64_t obj_) { m_obj = std::to_string(obj_); }
 };
 
 //! output a message element
 template<typename T>
-std::ostream& operator<<(std::ostream& os_, const ObjType<T>& obj_)
+std::ostream& operator<<(std::ostream& os_, const MsgType<T>& obj_)
 {
 	os_ << obj_.Value();
 	return os_;
 }
 
-//! object generator
-/*!
-   T is expected to be an integral type.
-   specialize for non-integral ones.
-*/
+
+// IndexToObject: called by producer with unique index. 
+// Return an object appropriate for the  index.
+// By default, integral type is assumed and the object is same as
+// the index. For strings, it is string equivalent. 
 template<typename T>
-struct ObjectGenerator
-{
-	// called by producer with unique index. 
-	// Return an object appropriate for the  index.
-	// In this example, our object is same as the index. 
-	// The index can be used by obj generator to 'stamp' its objects
-	// with unique values.
-	T	GetNext(size_t index_) { return index_; }
-};
+T IndexToObject(size_t index_) { return T{ index_ }; }
 
 template<>
-struct ObjectGenerator<std::string>
-{
-	// called by producer with unique index. 
-	// Return an object appropriate for the  index.
-	// In this example, our object is same as the index. 
-	// The index can be used by obj generator to 'stamp' its objects
-	// with unique values.
-	std::string	GetNext(size_t index_) { 
-		return std::to_string(index_);
-	}
-};
+std::string IndexToObject<std::string>(size_t index_) { return std::to_string(index_); }
+
 
 //! Producer thread
 template<typename TBuffer>
@@ -195,7 +181,6 @@ class Producer
 	size_t m_numObjs; // number of objects produced
 	double	m_timeElapsed; // total time elapsed
 	ObjType		m_lastObj; // value of the last object
-	ObjectGenerator<ObjType>	m_objGenerator; // generator to get objects produced 
 	TBuffer&     m_buffer; // buffer to write to
 	std::thread m_thread; // default constructed thread
 
@@ -220,9 +205,9 @@ public:
 	// implement thread func code here
 	void Run()
 	{
-		size_t	lastLoc = -1; // last location produced as if array were infinite
-		size_t	lastAbsRow = -1; // last row as if array were infinite 
-		size_t	lastCol = -1; // last column within a row
+		auto	lastLoc = -1; // last location produced as if array were infinite
+		auto	lastAbsRow = -1; // last row as if array were infinite 
+		auto	lastCol = -1; // last column within a row
 		// Thus lastLoc = lastAbsRow*columns-per-row + lastCol 
 		// when the values are not -1
 	
@@ -233,19 +218,19 @@ public:
 			// produce: get next row to produce and fill object values
 			size_t absRow;
 			_dbg_ << "prod: " << m_name << " get next loc - ";
-			size_t row = m_buffer.GetNextLocForProd(absRow);
+			auto row = m_buffer.GetNextLocForProd(absRow);
 			if (row >= m_buffer.BufSize() )
 			{
 				_dbg_ << m_name << " : Illegal row " << row << ". Buffer probably stopped\n";
 				break;
 			}
 			if (m_stop) break;
-			ObjType* arr = (ObjType*) &m_buffer[row][0];
-			size_t col = 0;
+			auto* arr =  &m_buffer[row][0];
+			auto col = 0u;
 			for (; (col < m_buffer.BufElemSize() ) && (!m_stop) ; ++col)
 			{
 				lastLoc = absRow*m_buffer.BufElemSize() + col; // produced until this loc
-				ObjType nextProdVal = m_objGenerator.GetNext(lastLoc);
+				auto nextProdVal = IndexToObject<ObjType>(lastLoc);
 				arr[col] = nextProdVal;
 				_dbg_ << "----nextProdVal " << nextProdVal << ", col " << col
 					   << ", arr[col] " << arr[col] << std::endl;
@@ -327,11 +312,11 @@ public:
 	void Run()
 	{
 		TimeKeeper sw("Consumer Timekeeper");
-		ObjType	prevObj = -1;
-		ObjType	curObj = 0;
-		size_t	lastLoc = -1; // last location consumed as if array were infinite
-		size_t	lastAbsRow = -1; // last row as if array were infinite 
-		size_t	lastCol = -1; // last column within a row
+		ObjType	prevObj{ -1 };
+		ObjType	curObj{ 0 };
+		auto	lastLoc = -1; // last location consumed as if array were infinite
+		auto	lastAbsRow = -1; // last row as if array were infinite 
+		auto	lastCol = -1; // last column within a row
 							  // Thus lastLoc = lastAbsRow*columns-per-row + lastCol 
 							  // when the values are not -1
 
@@ -351,8 +336,8 @@ public:
 				break;
 			}
 			if (m_stop) break;
-			ObjType* arr = (ObjType*) &m_buffer[row][0];
-			size_t col = 0;
+			auto* arr = (ObjType*) &m_buffer[row][0];
+			auto col = 0u;
 			for (; (col < m_buffer.BufElemSize() ) && (!m_stop) ; ++col)
 			{
 				curObj = arr[col];
@@ -415,22 +400,21 @@ public:
 template<typename TBuffer>
 void RunProducersConsumers(int numProd_, int numCons_, TBuffer& buffer_)
 {
-	typedef TBuffer::ValueType ObjType;
 	_dbg_ << " Number of producers " << numProd_ << std::endl;
 	std::vector<Producer<TBuffer>*> prods(numProd_);
 	_dbg_ << " Number of consumers " << numCons_ << std::endl;
 	std::vector<Consumer<TBuffer>*> cons(numCons_);
-	int64_t lastProduced = -1;
-	int64_t lastConsumed = -1;
+	decltype(((typename TBuffer::ValueType*) nullptr)->GetIndex()) lastProduced = -1;
+	decltype(((typename TBuffer::ValueType*) nullptr)->GetIndex()) lastConsumed = -1;
 
-	for (size_t i = 0; i < prods.size(); ++i)
+	for (auto i = 0u; i < prods.size(); ++i)
 	{
 		prods[i] = new Producer<TBuffer>(buffer_);
 		char s[10];
 		sprintf_s(s, sizeof(s), "prod %03d", i);
 		prods[i]->SetName(s);
 	}
-	for (size_t i = 0; i < cons.size(); ++i)
+	for (auto i = 0u; i < cons.size(); ++i)
 	{
 		cons[i] = new Consumer<TBuffer>(buffer_);
 		char s[10];
@@ -441,12 +425,12 @@ void RunProducersConsumers(int numProd_, int numCons_, TBuffer& buffer_)
 	{
 		TimeKeeper tk("All prod-cons");
 
-		for (size_t i = 0; i < prods.size(); ++i)
+		for (auto i = 0u; i < prods.size(); ++i)
 		{
 			//prods[i]->Start();
 			_dbg_ << prods[i]->GetName() << " Handle " << prods[i]->GetThread().get_id() << std::endl;
 		}
-		for (size_t i = 0; i < cons.size(); ++i)
+		for (auto i = 0u; i < cons.size(); ++i)
 		{
 			//cons[i]->Start();
 			_dbg_ << cons[i]->GetName() << " Handle " << cons[i]->GetThread().get_id() << std::endl;
@@ -455,49 +439,49 @@ void RunProducersConsumers(int numProd_, int numCons_, TBuffer& buffer_)
 		_dbg_ << "Sleep for " << numSecs << " seconds\n";
 		std::this_thread::sleep_for(std::chrono::seconds(numSecs));
 		_dbg_ << "Stopping producers and consumers\n";
-		for (size_t i = 0; i < prods.size(); ++i)
+		for (auto i = 0u; i < prods.size(); ++i)
 		{
 			prods[i]->Stop();
 		}
-		for (size_t i = 0; i < cons.size(); ++i)
+		for (auto i = 0u; i < cons.size(); ++i)
 		{
 			cons[i]->Stop();
 		}
 
 		// wait for all  threads to complete
 		_dbg_ << "Waiting for producers and consumers to complete\n";
-		for (size_t i = 0; i < cons.size(); ++i)
+		for (auto i = 0u; i < cons.size(); ++i)
 		{
 			cons[i]->GetThread().join();
 		}
-		for (size_t i = 0; i < prods.size(); ++i)
+		for (auto i = 0u; i < prods.size(); ++i)
 		{
 			prods[i]->GetThread().join();
 		}
 	}
 	size_t totalProduced = 0, totalConsumed = 0;
 	double	totalElapsedProd = 0, totalElapsedCons = 0;
-	for (size_t i = 0; i < prods.size(); ++i)
+	for (auto i = 0u; i < prods.size(); ++i)
 	{
 		size_t num = prods[i]->GetTotal();
 		totalProduced += num;
 		_dbg_ << prods[i]->GetName() << " : " 
 			 << prods[i]->GetElapsedTime() << " secs. " << num << " produced\n";
 		totalElapsedProd += prods[i]->GetElapsedTime();
-		int64_t lp = prods[i]->GetLastObj().GetIndex();
+		auto lp = prods[i]->GetLastObj().GetIndex();
 		if (lp > lastProduced) lastProduced = lp;
 
 		delete prods[i];
 		prods[i] = NULL;
 	}
-	for (size_t i = 0; i < cons.size(); ++i)
+	for (auto i = 0u; i < cons.size(); ++i)
 	{
 		size_t num = cons[i]->GetTotal();
 		totalConsumed += num;
 		_dbg_ << cons[i]->GetName() << " : " 
 			 << cons[i]->GetElapsedTime() << " secs. " << num << " consumed\n";
 		totalElapsedCons += cons[i]->GetElapsedTime();
-		int64_t lc = cons[i]->GetLastObj().GetIndex();
+		auto lc = cons[i]->GetLastObj().GetIndex();
 		if (lc > lastConsumed) lastConsumed = lc;
 
 		delete cons[i];
@@ -516,7 +500,8 @@ void RunProducersConsumers(int numProd_, int numCons_, TBuffer& buffer_)
 	//cout << 10 * log(buffer_.BufElemSize()) + 1
 	//	<< " ----------- " << usecPerProd * 100 << endl;
 	std::cout << buffer_.BufElemSize()
-		<< " ----------- " << usecPerProd * 100 << std::endl;
+		<< " ----------- " << usecPerProd * 100
+		<< "( " << totalMsgsProd << " messages )" << std::endl;
 
 	//cout << "------Buffer : " << buffer_.BufSize() << "x"
 	//	 << buffer_.BufElemSize() << " = " << buffer_.BufSize()*buffer_.BufElemSize()
@@ -552,20 +537,19 @@ int main(int argc, char** argv)
 	else
 	{
 		std::cout << "Usage: Messenger <num prod> <num cons>\n";
-		std::cout << "Taking defaults: Messenger 1 1\n";
+		std::cout << "No args provided. Taking defaults: 1 producer, 1 consumer\n";
 	}
 	// buffer rows x columns = 10 million
-	static const size_t BufSize = 10000000;
+	static const size_t BufSize = 10'000'000;
 	static const size_t NumColumns = 1;
-	typedef Messenger::MBuffer<BufSize, NumColumns, ObjType<int64_t>> BufType;
-	std::unique_ptr<BufType> buffer(new BufType());
+	typedef Messenger::MBuffer<BufSize, NumColumns, MsgType<int64_t>> BufType;
+	auto buffer = std::make_unique<BufType>();
 
 	// vary number of columns from 1 (min) to BufSize (max)
 	// and verify the performance.
-	//cout << "Buffer row size [10*log(row size) + 1] vs usec/message\n";
-	std::cout << "Buffer row size  vs 100*usec/message\n";
+	std::cout << "Buffer row size  vs 100*usec/message (producer)\n";
 	std::cout << "------------------------------------------------------\n";
-	for (size_t numCols = 1; numCols <= BufSize; numCols *= 10)
+	for (auto numCols = 1u; numCols <= BufSize; numCols *= 10)
 	{
 		if (numCols >= 10) {
 			// consider half of the column value as well.
