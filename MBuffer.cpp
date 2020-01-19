@@ -14,7 +14,7 @@ Synchronised between multiple producer and consumer threads.
 
 
 // uncomment this for debug output (very long for large buffers)
-// #define DEBUG_MSG
+// DEBUG_MSG
 
 // default number of producers, consumers
 static const auto g_NumProd = 2;
@@ -195,7 +195,7 @@ public:
 	~Producer()
 	{
 	}
-	void SetName(const char* s_) { m_name = s_; }
+	void SetName(const std::string & s_) { m_name = s_; }
 	const std::string& GetName() const { return m_name; }
 
 	// launch thread
@@ -301,7 +301,7 @@ public:
 	~Consumer()
 	{
 	}
-	void SetName(const char* s_) { m_name = s_; }
+	void SetName(const std::string & s_) { m_name = s_; }
 	const std::string& GetName() const { return m_name; }
 
 	// launch thread
@@ -398,28 +398,29 @@ public:
 
 
 template<typename TBuffer>
-void RunProducersConsumers(int numProd_, int numCons_, TBuffer& buffer_)
+void RunProducersConsumers(size_t numProd_, size_t numCons_, TBuffer& buffer_)
 {
 	_dbg_ << " Number of producers " << numProd_ << std::endl;
-	std::vector<Producer<TBuffer>*> prods(numProd_);
 	_dbg_ << " Number of consumers " << numCons_ << std::endl;
-	std::vector<Consumer<TBuffer>*> cons(numCons_);
+	std::vector<std::unique_ptr<Producer<TBuffer>>> prods;
+	std::vector<std::unique_ptr<Consumer<TBuffer>>> cons;
+
 	decltype(((typename TBuffer::ValueType*) nullptr)->GetIndex()) lastProduced = -1;
 	decltype(((typename TBuffer::ValueType*) nullptr)->GetIndex()) lastConsumed = -1;
 
-	for (auto i = 0u; i < prods.size(); ++i)
+	for (auto i = 0u; i < numProd_; ++i)
 	{
-		prods[i] = new Producer<TBuffer>(buffer_);
-		char s[10];
-		sprintf_s(s, sizeof(s), "prod %03d", i);
-		prods[i]->SetName(s);
+		auto p = std::make_unique<Producer<TBuffer>>(buffer_);
+		auto s = "prod " + std::to_string(i);
+		p->SetName(s);
+		prods.push_back(std::move(p));
 	}
-	for (auto i = 0u; i < cons.size(); ++i)
+	for (auto i = 0u; i < numCons_; ++i)
 	{
-		cons[i] = new Consumer<TBuffer>(buffer_);
-		char s[10];
-		sprintf_s(s, sizeof(s), "cons %03d", i);
-		cons[i]->SetName(s);
+		auto c = std::make_unique<Consumer<TBuffer>>(buffer_);
+		auto s = "cons " + std::to_string(i);
+		c->SetName(s);
+		cons.push_back(std::move(c));
 	}
 
 	{
@@ -427,15 +428,15 @@ void RunProducersConsumers(int numProd_, int numCons_, TBuffer& buffer_)
 
 		for (auto i = 0u; i < prods.size(); ++i)
 		{
-			//prods[i]->Start();
+			prods[i]->Start();
 			_dbg_ << prods[i]->GetName() << " Handle " << prods[i]->GetThread().get_id() << std::endl;
 		}
 		for (auto i = 0u; i < cons.size(); ++i)
 		{
-			//cons[i]->Start();
+			cons[i]->Start();
 			_dbg_ << cons[i]->GetName() << " Handle " << cons[i]->GetThread().get_id() << std::endl;
 		}
-		const int numSecs = 5;
+		const auto numSecs = 5;
 		_dbg_ << "Sleep for " << numSecs << " seconds\n";
 		std::this_thread::sleep_for(std::chrono::seconds(numSecs));
 		_dbg_ << "Stopping producers and consumers\n";
@@ -459,59 +460,53 @@ void RunProducersConsumers(int numProd_, int numCons_, TBuffer& buffer_)
 			prods[i]->GetThread().join();
 		}
 	}
-	size_t totalProduced = 0, totalConsumed = 0;
-	double	totalElapsedProd = 0, totalElapsedCons = 0;
+	auto totalProduced = 0, totalConsumed = 0;
+	auto	totalElapsedProd = 0.0, totalElapsedCons = 0.0;
 	for (auto i = 0u; i < prods.size(); ++i)
 	{
-		size_t num = prods[i]->GetTotal();
+		auto num = prods[i]->GetTotal();
 		totalProduced += num;
 		_dbg_ << prods[i]->GetName() << " : " 
 			 << prods[i]->GetElapsedTime() << " secs. " << num << " produced\n";
 		totalElapsedProd += prods[i]->GetElapsedTime();
-		auto lp = prods[i]->GetLastObj().GetIndex();
-		if (lp > lastProduced) lastProduced = lp;
-
-		delete prods[i];
-		prods[i] = NULL;
+		auto lastp = prods[i]->GetLastObj().GetIndex();
+		if (lastp > lastProduced) lastProduced = lastp;
 	}
+	prods.clear();
+
 	for (auto i = 0u; i < cons.size(); ++i)
 	{
-		size_t num = cons[i]->GetTotal();
+		auto num = cons[i]->GetTotal();
 		totalConsumed += num;
 		_dbg_ << cons[i]->GetName() << " : " 
 			 << cons[i]->GetElapsedTime() << " secs. " << num << " consumed\n";
 		totalElapsedCons += cons[i]->GetElapsedTime();
-		auto lc = cons[i]->GetLastObj().GetIndex();
-		if (lc > lastConsumed) lastConsumed = lc;
-
-		delete cons[i];
-		cons[i] = NULL;
+		auto lastc = cons[i]->GetLastObj().GetIndex();
+		if (lastc > lastConsumed) lastConsumed = lastc;
 	}
-	// print timings
-	size_t totalMsgsProd = totalProduced;
-	size_t totalMsgsCons = totalConsumed;
-	double msecPerProd = 1000.0f*totalElapsedProd/totalMsgsProd;
-	double msecPerCons = 1000.0f*totalElapsedCons/totalMsgsProd;
-	double usecPerProd = 1000.0f*msecPerProd;
-	double usecPerCons = 1000.0f*msecPerCons;
-	// producer performance stat.
-	// Log of number of elem per buffer * 10.
-	// production time per elem (in microsec) * 100
-	//cout << 10 * log(buffer_.BufElemSize()) + 1
-	//	<< " ----------- " << usecPerProd * 100 << endl;
-	std::cout << buffer_.BufElemSize()
-		<< " ----------- " << usecPerProd * 100
-		<< "( " << totalMsgsProd << " messages )" << std::endl;
+	cons.clear();
 
-	//cout << "------Buffer : " << buffer_.BufSize() << "x"
-	//	 << buffer_.BufElemSize() << " = " << buffer_.BufSize()*buffer_.BufElemSize()
-	//	 << endl;
-	//cout << "------Number of producers : " << numProd_ << ", Total produced "
-	//	 << totalMsgsProd << " (" << totalElapsedProd << "s -- "
-	//	 << usecPerProd << " usec/msg)" << endl;
-	//cout << "------Number of consumers : " << numCons_ << ", Total consumed "
-	//	 << totalMsgsCons << " (" << totalElapsedCons << "s -- "
-	//	 << usecPerCons << " usec/msg)" << endl;
+	// print timings
+	auto totalMsgsProd = totalProduced;
+	auto totalMsgsCons = totalConsumed;
+	auto msecPerProd = 1000.0f*totalElapsedProd/totalMsgsProd;
+	auto msecPerCons = 1000.0f*totalElapsedCons/totalMsgsProd;
+	auto usecPerProd = 1000.0f*msecPerProd;
+	auto usecPerCons = 1000.0f*msecPerCons;
+	// producer performance stat.
+	//std::cout << buffer_.BufElemSize()
+	//	<< " ----------- " << usecPerProd * 100
+	//	<< "( " << totalMsgsProd << " messages produced )" << std::endl;
+
+	std::cout << "------Buffer : " << buffer_.BufSize() << "x"
+		 << buffer_.BufElemSize() << " = " << buffer_.BufSize()*buffer_.BufElemSize()
+		 << std::endl;
+	std::cout << "------Number of producers : " << numProd_ << ", Total produced "
+		 << totalMsgsProd << " (" << totalElapsedProd << "s -- "
+		 << usecPerProd << " usec/msg)" << std::endl;
+	std::cout << "------Number of consumers : " << numCons_ << ", Total consumed "
+		 << totalMsgsCons << " (" << totalElapsedCons << "s -- "
+		 << usecPerCons << " usec/msg)" << std::endl;
 	_dbg_ << "Last produced " << lastProduced << ", last consumed " << lastConsumed << std::endl;
 	if (numProd_ <= 1 && numCons_ <= 1) // this sanity test valid only for single prod and single cons
 	{
@@ -537,25 +532,27 @@ int main(int argc, char** argv)
 	else
 	{
 		std::cout << "Usage: Messenger <num prod> <num cons>\n";
-		std::cout << "No args provided. Taking defaults: 1 producer, 1 consumer\n";
+		std::cout << "No args provided. Taking defaults: "
+			<< numProd << " producer(s), "
+			<< numCons << " consumer(s)\n" << std::endl;
 	}
 	// buffer rows x columns = 10 million
-	static const size_t BufSize = 10'000'000;
-	static const size_t NumColumns = 1;
+	static const auto BufSize = 10'000'000;
+	static const auto NumColumns = 1;
 	typedef Messenger::MBuffer<BufSize, NumColumns, MsgType<int64_t>> BufType;
 	auto buffer = std::make_unique<BufType>();
 
 	// vary number of columns from 1 (min) to BufSize (max)
 	// and verify the performance.
-	std::cout << "Buffer row size  vs 100*usec/message (producer)\n";
+	std::cout << "Buffer row x column size  vs usec/message\n";
 	std::cout << "------------------------------------------------------\n";
 	for (auto numCols = 1u; numCols <= BufSize; numCols *= 10)
 	{
 		if (numCols >= 10) {
 			// consider half of the column value as well.
 			// Thus we will have number of columns: 1,5,10,50,100,500,1000...
-			size_t numColsTmp = numCols/2;
-			size_t numRows = BufSize / numColsTmp;
+			auto numColsTmp = numCols/2;
+			auto numRows = BufSize / numColsTmp;
 			buffer->Reset();
 			buffer->SetRowsColumns(numRows, numColsTmp);
 			RunProducersConsumers(numProd, numCons, *buffer);
