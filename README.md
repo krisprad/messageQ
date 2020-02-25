@@ -1,4 +1,4 @@
-# messageQ - Lockless - High throughput, low latency data structure for multiple producer / consumer system
+# Lockless data structure for high throughput, low latency multiple producer / consumer system
 Message buffer organised as two dimensional array for high throughput and latency
 
 MBuffer.h - producer consumer code
