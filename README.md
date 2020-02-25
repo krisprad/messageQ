@@ -1,5 +1,6 @@
 # Lockless data structure for high throughput, low latency multiple producer / consumer system
-Message buffer organised as two dimensional array for high throughput and latency
+Message buffer organised as two dimensional array for high throughput and latency.
+See documentation.pdf for more details.
 
 MBuffer.h - producer consumer code
 
